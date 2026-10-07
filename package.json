@@ -1,0 +1,68 @@
+{
+  "name": "dsh-voice-polish",
+  "version": "1.0.0",
+  "description": "VoxPolish for DeepSeek Harness (dsh): voice input with an expression coach. Record with your own mic, get the raw transcript in ~1s (sendable at once), while a fast model rewrites it into a clear, well-structured prompt in the background. Two send buttons (raw / polished), per-style rewriting, live waveform, a custom vocabulary that fixes misrecognised words, and a model picker — and it never touches the composer draft. Uses the local SenseVoice recogniser from the official voice-input bundle, so there is no extra model download.",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "voice",
+    "voice-input",
+    "speech-to-text",
+    "prompt",
+    "prompt-engineering",
+    "expression",
+    "transcription",
+    "sensevoice",
+    "voxpolish"
+  ],
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "author": "molanxuan-del <2954567135@qq.com>",
+  "homepage": "https://github.com/molanxuan-del/DSH-VoxPolish#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/molanxuan-del/DSH-VoxPolish.git"
+  },
+  "bugs": {
+    "url": "https://github.com/molanxuan-del/DSH-VoxPolish/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/parse.test.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible"
+      }
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

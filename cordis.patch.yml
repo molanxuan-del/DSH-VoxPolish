@@ -1,0 +1,33 @@
+# dsh-voice-polish bundle patch
+#
+# Inserts this plugin's row into the profile roster. The host half
+# (exports ".") owns the /dsh-voice-polish/* routes and the LLM call; the
+# `dsh.client` declaration in package.json makes the browser half
+# (exports "./client") load in the web GUI.
+#
+# Install (from npm):
+#   dsh plugin --profile <name> add dsh-voice-polish
+# Install (from a local checkout):
+#   dsh plugin --profile <name> add link:<path-to-this-package>
+#
+# Config: the model route used to polish. Omitted by default so the plugin
+# polishes with YOUR default agent model — a rewrite task wants a fast, cheap
+# model, and the default already is one you chose. Pin an explicit route only
+# if you want polishing to never touch your main route's quota:
+#
+# - insert:
+#     - id: voice-polish
+#       name: 'dsh-voice-polish'
+#       config:
+#         provider: opencode-go
+#         model: deepseek-v4.1-flash
+#         temperature: 0.2
+#         maxTokens: 2400
+#
+# Transcription needs a speech recogniser. Enable the official
+# 「语音输入 Bundle」 (@deepseek-ai/dsh-experimental-voice-input-bundle) and
+# complete its one-time model download; this plugin reuses that recogniser
+# and downloads nothing itself.
+- insert:
+    - id: voice-polish
+      name: 'dsh-voice-polish'

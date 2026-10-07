@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Packed artifacts
+*.tgz
+dsh-voice-polish-*.tgz
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local scratch (never part of the package)
+.scratch/
