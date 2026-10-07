@@ -1,0 +1,13 @@
+# Keep line endings stable across platforms.
+# Text files are stored as LF; binary assets are never converted.
+# (Added in P0 after the independent review flagged CRLF/LF drift:
+#  the evidence byte counts differed between the LF blob and the CRLF worktree.)
+* text=auto
+*.svg text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
