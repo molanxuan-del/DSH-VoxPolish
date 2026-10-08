@@ -96,8 +96,13 @@ function stripComments(source) {
 
 /* --------------------------------------------------- build stamp / identity */
 
-test('the client bundle carries the expected build stamp', () => {
-  assert.match(SOURCE, /const CLIENT_REV = 'c6-official-sidebar'/)
+test('the client bundle carries a build stamp and shows it in the panel', () => {
+  // The contract is that a stamp EXISTS, is logged on load, and is rendered in
+  // the panel — not that it holds one particular value. Pinning the literal made
+  // every rev bump fail this test, which is a false alarm, not a regression.
+  assert.match(SOURCE, /const CLIENT_REV = '[A-Za-z0-9._-]+'/)
+  assert.match(SOURCE, /log\('client bundle loaded', \{ rev: CLIENT_REV \}\)/)
+  assert.match(SOURCE, /客户端 \$\{CLIENT_REV\}/)
 })
 
 test('the official tab id is the package name and the kind is stable', () => {
