@@ -36,7 +36,7 @@ voice-input bundle, so there is no extra model download.
 
 > `dsh-voice-polish` 正在首发 npm。若下面的 `add` 报 404，请用「从源码安装」那一节。
 
-**DSH 桌面端**：应用内打开 **设置 → 插件 → 安装插件**，填入 `dsh-voice-polish`。
+**DSH 桌面端**：应用内打开 **设置 → 插件**，点 **「添加插件」**，填入 `dsh-voice-polish`。
 （桌面端的 profile 由应用自己管理，公开 CLI 改不了它。）
 
 **命令行（CLI 版 DSH）**：
