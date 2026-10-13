@@ -1,7 +1,7 @@
 {
   "name": "dsh-voice-polish",
   "version": "1.0.0",
-  "description": "VoxPolish for DeepSeek Harness (dsh): voice input with an expression coach. Record with your own mic, get the raw transcript in ~1s (sendable at once), while a fast model rewrites it into a clear, well-structured prompt in the background. Two send buttons (raw / polished), per-style rewriting, live waveform, a custom vocabulary that fixes misrecognised words, and a model picker — and it never touches the composer draft. Uses the local SenseVoice recogniser from the official voice-input bundle, so there is no extra model download.",
+  "description": "「声琢」VoxPolish — 把说出来的话打磨成清晰表达：原话/整理后双通道，先说后改再发送，全程不碰输入框。Voice input with an expression coach for DeepSeek Harness; local SenseVoice ASR, no extra model download.",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -43,7 +43,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/parse.test.mjs test/service.test.mjs"
+    "test": "node --test test/parse.test.mjs test/service.test.mjs test/client-contract.test.mjs"
   },
   "publishConfig": {
     "access": "public"
