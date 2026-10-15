@@ -34,18 +34,17 @@ voice-input bundle, so there is no extra model download.
 
 ## 安装
 
-> `dsh-voice-polish` 正在首发 npm。若下面的 `add` 报 404，请用「从源码安装」那一节。
-
-**DSH 桌面端**：应用内打开 **设置 → 插件**，点 **「添加插件」**，填入 `dsh-voice-polish`。
-（桌面端的 profile 由应用自己管理，公开 CLI 改不了它。）
-
-**命令行（CLI 版 DSH）**：
+**一行装（CLI 版 DSH）** —— 直接从 GitHub 拉，**不需要 npm**：
 
 ```bash
-dsh plugin --profile web add dsh-voice-polish
+dsh plugin --profile web add github:molanxuan-del/DSH-VoxPolish
 ```
 
-**从源码安装**（不需要 npm）：
+**DSH 桌面端**：应用内打开 **设置 → 插件**，点 **「添加插件」**，填入同一个来源
+`github:molanxuan-del/DSH-VoxPolish`。
+（桌面端的 profile 由应用自己管理，公开 CLI 改不了它。）
+
+**本地开发装法**（改了代码要立刻生效时用这个）：
 
 ```bash
 git clone https://github.com/molanxuan-del/DSH-VoxPolish.git
@@ -217,7 +216,7 @@ dsh-voice-polish/
   lib/core.js               共享内核：提示词、解析器、词表（插件与服务同源）
   lib/client.js             客户端半：🎤/📋 按钮 + 面板 + 录音管线 + 三种宿主
   service/                  独立服务：cli.js / server.js / llm.js / asr/
-  test/                     离线测试（不随 npm 包发布）
+  test/                     离线测试（安装时不会下载）
 ```
 
 - **录音**：`getUserMedia` → `AudioContext({sampleRate:16000})` → `ScriptProcessorNode`
@@ -266,9 +265,11 @@ npm test                                                    # 上面三项的集
 - [x] **v1.0.0** 插件本体：原话/整理后双通道、词表纠错、模型选择、表达教练、实时声波
 - [x] **官方右侧栏适配**：迁移到 `sidebarRightTabs`，`dsh-better-sidebar` 降为可选回退
 - [x] **独立服务（VoxPolish Service）**：CLI + HTTP API，`--selftest` 全绿
-- [ ] 发布 npm（一行 `dsh plugin add dsh-voice-polish`）
+- [x] **一行安装**：`dsh plugin --profile web add github:molanxuan-del/DSH-VoxPolish`（无需 npm）
 - [ ] 语音识别可插拔：**本地离线**（sherpa-onnx + SenseVoice，免费、不出本机）与**用户自带 API**
 - [ ] 提交到社区插件市场
+- [~] ~~发布到 npm~~ —— 暂缓：npm 现已**强制要求发布者开启二次验证**，
+      而 GitHub 直装已经能让任何人一条命令装上，所以不为此增加一个账号安全负担
 
 欢迎提 Issue / PR。合并前会逐行审查（公开仓库的 PR 一律按不可信代码审）。
 
