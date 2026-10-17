@@ -2,9 +2,9 @@
  * dsh-voice-polish service — HTTP entry.
  *
  *   GET  /health        liveness + resolved LLM/ASR configuration
- *   POST /polish        { text, style?, instruction? }  → { polished, tip, gaps }
+ *   POST /polish        { text, style?, instruction? }  → { polished, tip, gaps, analysis, terms }
  *   POST /transcribe    raw audio body                  → { text }
- *   POST /process       raw audio body                  → { raw, polished, tip, gaps }
+ *   POST /process       raw audio body                  → { raw, polished, tip, gaps, analysis, terms }
  *
  * Every response uses one envelope — `{ ok: true, value }` or
  * `{ ok: false, error: { message } }` — the same shape the DSH plugin's routes
@@ -197,7 +197,21 @@ export function createRequestHandler({ env = process.env, fetchImpl, token = env
             const style = typeof payload?.style === 'string' ? payload.style : undefined
             const instruction = typeof payload?.instruction === 'string' ? payload.instruction : undefined
             const { value } = await polish({ config, text, style, instruction, vocabText: readVocab(env), fetchImpl })
-            writeJson(res, 200, { ok: true, value })
+            // Teaching fields are passed through exactly as the shared parser
+            // produced them: `terms` stays an array of strings (the client splits
+            // each entry on ｜), and neither field is merged into `polished`.
+            writeJson(res, 200, {
+              ok: true,
+              value: {
+                polished: value.polished,
+                tip: value.tip,
+                gaps: value.gaps,
+                analysis: value.analysis,
+                terms: value.terms,
+                style: value.style,
+                model: value.model,
+              },
+            })
           } catch (error) {
             logger?.warn?.(`[dsh-voice-polish] polish failed: ${error?.message ?? error}`)
             writeJson(res, 502, errorEnvelope(String(error?.message ?? error), 'LLM_CALL_FAILED'))
@@ -265,7 +279,7 @@ export function createRequestHandler({ env = process.env, fetchImpl, token = env
             const { value } = await polish({ config, text, style, vocabText: readVocab(env), fetchImpl })
             writeJson(res, 200, {
               ok: true,
-              value: { raw: text, polished: value.polished, tip: value.tip, gaps: value.gaps, style: value.style, model: value.model },
+              value: { raw: text, polished: value.polished, tip: value.tip, gaps: value.gaps, analysis: value.analysis, terms: value.terms, style: value.style, model: value.model },
             })
           } catch (error) {
             logger?.warn?.(`[dsh-voice-polish] process failed: ${error?.message ?? error}`)

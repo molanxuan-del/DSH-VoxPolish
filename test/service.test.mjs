@@ -592,6 +592,29 @@ test('POST /polish runs the whole pipeline and returns the shared envelope', asy
   })
 })
 
+test('POST /polish carries analysis and three-part terms in its envelope', async () => {
+  const entry = '虚拟列表｜几千条数据滚动也不掉帧｜苹果相册无限滚动的流畅度'
+  const reply = `{"polished":"列表要顺畅","tip":"","gaps":[],"analysis":"你真正想要的是长列表也不卡。","terms":["${entry}"]}`
+  const env = { VP_LLM_API_KEY: 'test-key', DSH_HOME: path.join(os.tmpdir(), 'vp-test-home-absent') }
+  await withServer({ env, fetchImpl: fakeChat(reply) }, async (url) => {
+    const response = await fetch(`${url}/polish`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ text: '列表好卡' }),
+    })
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.value.polished, '列表要顺畅')
+    assert.equal(body.value.analysis, '你真正想要的是长列表也不卡。')
+    // Passed through as-is: one string, two ｜ separators.
+    assert.deepEqual(body.value.terms, [entry])
+    assert.equal(body.value.terms[0].split('｜').length, 3)
+    // Teaching content must never be folded into what the caller would send.
+    assert.equal(body.value.polished.includes('虚拟列表'), false)
+  })
+})
+
 test('POST /polish validates its input and fails loudly without a key', async () => {
   await withServer({ env: {} }, async (url) => {
     const bad = await fetch(`${url}/polish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{oops' })
@@ -673,6 +696,22 @@ test('POST /process chains cloud ASR into the shared polish pipeline', async () 
     const chatBody = JSON.parse(chat.init.body)
     assert.ok(chatBody.messages[1].content.includes('呃 那个 我想加缓存'))
     assert.ok(chatBody.messages[1].content.includes(STYLE_GUIDE.concise))
+  })
+})
+
+test('POST /process carries analysis and three-part terms next to the transcript', async () => {
+  const entry = '骨架屏｜内容没来时先占位，等待感更短｜类似 App 打开时先出现的灰色轮廓'
+  const reply = `{"polished":"整理后","tip":"建议","gaps":[],"analysis":"你真正想要的是少一点的等待焦虑。","terms":["${entry}"]}`
+  const transport = fakePipeline({ transcript: '呃 那个 我想要个骨架屏', reply })
+  await withServer({ env: cloudEnv(), fetchImpl: transport }, async (url) => {
+    const response = await fetch(`${url}/process`, { method: 'POST', body: Buffer.from('RIFF....WAVEfmt ') })
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.value.raw, '呃 那个 我想要个骨架屏')
+    assert.equal(body.value.analysis, '你真正想要的是少一点的等待焦虑。')
+    assert.deepEqual(body.value.terms, [entry])
+    assert.equal(body.value.polished.includes('骨架屏'), false)
   })
 })
 
@@ -758,19 +797,53 @@ test('run rejects a bad invocation with exit code 2 on stderr', async () => {
   assert.match(stderr.text, /未知参数/)
 })
 
-test('run prints plain text by default and {polished,tip,gaps} with --json', async () => {
+test('run prints plain text by default and {polished,tip,gaps,analysis,terms} with --json', async () => {
   const reply = '{"polished":"整理后的文本","tip":"建议","gaps":["缺口"]}'
   const env = { VP_LLM_API_KEY: 'test-key', DSH_HOME: path.join(os.tmpdir(), 'vp-test-home-absent') }
 
   const plainOut = capture()
   const plainCode = await run(['呃 那个 文本'], { stdout: plainOut.stream, stderr: capture().stream, env, fetchImpl: fakeChat(reply) })
   assert.equal(plainCode, 0)
+  // Plain mode stays exactly one thing: the polished text. No analysis, no terms.
   assert.equal(plainOut.text, '整理后的文本\n')
 
   const jsonOut = capture()
   const jsonCode = await run(['--json', '文本'], { stdout: jsonOut.stream, stderr: capture().stream, env, fetchImpl: fakeChat(reply) })
   assert.equal(jsonCode, 0)
-  assert.deepEqual(JSON.parse(jsonOut.text), { polished: '整理后的文本', tip: '建议', gaps: ['缺口'] })
+  // The two teaching keys are part of the envelope now, so the expectation is
+  // completed with the values this reply degrades them to (absent → '' / []).
+  assert.deepEqual(JSON.parse(jsonOut.text), {
+    polished: '整理后的文本',
+    tip: '建议',
+    gaps: ['缺口'],
+    analysis: '',
+    terms: [],
+  })
+})
+
+test('--json passes analysis and three-part terms through, and plain mode does not', async () => {
+  const entry = 'FLIP 动画｜列表重排、筛选时元素平滑移动不闪烁｜iOS 主屏图标重排的顺滑感'
+  const reply = `{"polished":"把界面做顺","tip":"","gaps":[],"analysis":"你真正想要的是动起来更顺的界面。","terms":["${entry}"]}`
+  const env = { VP_LLM_API_KEY: 'test-key', DSH_HOME: path.join(os.tmpdir(), 'vp-test-home-absent') }
+
+  const jsonOut = capture()
+  const code = await run(['--json', '文本'], { stdout: jsonOut.stream, stderr: capture().stream, env, fetchImpl: fakeChat(reply) })
+  assert.equal(code, 0)
+  const body = JSON.parse(jsonOut.text)
+  assert.equal(body.analysis, '你真正想要的是动起来更顺的界面。')
+  // Strict pass-through: still an array of strings, and the ｜ separators are
+  // untouched — the client, not the service, splits the three parts.
+  assert.deepEqual(body.terms, [entry])
+  assert.equal(body.terms[0].split('｜').length, 3)
+  assert.equal(body.polished.includes('FLIP'), false)
+
+  // The plain-text mode must not grow a single character of teaching content.
+  const plainOut = capture()
+  const plainCode = await run(['文本'], { stdout: plainOut.stream, stderr: capture().stream, env, fetchImpl: fakeChat(reply) })
+  assert.equal(plainCode, 0)
+  assert.equal(plainOut.text, '把界面做顺\n')
+  assert.equal(plainOut.text.includes('FLIP'), false)
+  assert.equal(plainOut.text.includes('你真正想要的是'), false)
 })
 
 test('run reads stdin with "-"', async () => {
@@ -840,7 +913,16 @@ test('CLI audio path runs end to end once cloud ASR is configured', async () => 
     const jsonOut = capture()
     const jsonCode = await run(['--json', wav], { stdout: jsonOut.stream, stderr: capture().stream, env: cloudEnv(), fetchImpl: fakePipeline({ transcript }) })
     assert.equal(jsonCode, 0)
-    assert.deepEqual(JSON.parse(jsonOut.text), { raw: transcript, polished: '整理后', tip: '建议', gaps: [] })
+    // Same completion as the text-mode case: the teaching keys are now part of
+    // the --json envelope and this reply carries neither, so they degrade to '' / [].
+    assert.deepEqual(JSON.parse(jsonOut.text), {
+      raw: transcript,
+      polished: '整理后',
+      tip: '建议',
+      gaps: [],
+      analysis: '',
+      terms: [],
+    })
 
     // --transcript stops before the LLM, so no LLM key is required.
     const rawOut = capture()

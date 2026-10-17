@@ -2,7 +2,7 @@
  * dsh-voice-polish service — command line entry.
  *
  *   node service/cli.js "一段口语转写"          → 整理后的纯文本
- *   node service/cli.js --json "文本"           → {"polished","tip","gaps"}
+ *   node service/cli.js --json "文本"           → {"polished","tip","gaps","analysis","terms"}
  *   node service/cli.js recording.wav           → 转写 + 整理
  *   cat note.txt | node service/cli.js -        → stdin
  *   node service/cli.js --selftest              → 离线自检，不联网、不需要 key
@@ -58,7 +58,7 @@ export const USAGE = `dsh-voice-polish 独立服务 — 语音/文本 → 整理
 
 用法
   node service/cli.js "一段口语转写"            整理文本，输出纯文本
-  node service/cli.js --json "文本"             输出 {"polished","tip","gaps"}
+  node service/cli.js --json "文本"             输出 {"polished","tip","gaps","analysis","terms"}
   node service/cli.js recording.wav             音频文件：转写后整理（--asr 选提供者）
   node service/cli.js --transcript recording.wav  只输出转写原文（不需要 LLM key）
   echo "文本" | node service/cli.js -          从 stdin 读取
@@ -67,7 +67,7 @@ export const USAGE = `dsh-voice-polish 独立服务 — 语音/文本 → 整理
   node service/cli.js --help                    显示本帮助
 
 选项
-  --json                 输出解析后的 {polished,tip,gaps}
+  --json                 输出解析后的 {polished,tip,gaps,analysis,terms}
   --raw                  把模型原始回复打印到 stderr（调试用）
   --style <名称>         ${Object.keys(STYLE_GUIDE).join(' | ')}（默认 ${DEFAULT_STYLE}）
   --transcript           音频模式下只输出转写原文
@@ -297,6 +297,19 @@ export function runSelftest(stdout, _stderr, { env = {} } = {}) {
   record('解析器：纯散文不丢内容', prose.polished === '这不是 JSON，只是一段普通文本。' && prose.gaps.length === 0)
   const empty = parseAnswer('')
   record('解析器：空串不抛错且为空', empty.polished === '' && empty.tip === '' && empty.gaps.length === 0)
+
+  // 2b. the three-part `terms` contract: the prompt asks for ｜-separated lines,
+  // and the parser hands each entry through untouched (the client splits them).
+  const threePart = 'FLIP 动画｜列表重排、筛选时元素平滑移动不闪烁｜iOS 主屏图标重排的顺滑感'
+  const teaching = parseAnswer(`{"polished":"P","analysis":"你真正想要的是让界面更顺。","terms":["${threePart}"]}`)
+  record(
+    '解析器：terms 三段式原样透传（｜ 不拆不改）+ analysis 同时到位',
+    SYSTEM_PROMPT.includes('技术名词｜效果：…｜类似：…') &&
+      teaching.terms.length === 1 &&
+      teaching.terms[0] === threePart &&
+      teaching.analysis.includes('界面更顺'),
+    teaching.terms[0],
+  )
 
   // 3. message construction — the piece that must match the plugin byte for byte.
   const user = buildUserMessage('样例文本', { style: 'deep' })
@@ -539,10 +552,13 @@ export async function run(argv = process.argv.slice(2), io = {}) {
 
     if (options.raw) stderr.write(`${raw}\n`)
     if (options.json) {
+      // Strict pass-through: `analysis` / `terms` come straight out of the shared
+      // parser (`terms` stays an array of strings, ｜ separators and all). The
+      // plain-text mode below deliberately prints only `polished`.
       const payload =
         options.mode === 'file'
-          ? { raw: transcript, polished: value.polished, tip: value.tip, gaps: value.gaps }
-          : { polished: value.polished, tip: value.tip, gaps: value.gaps }
+          ? { raw: transcript, polished: value.polished, tip: value.tip, gaps: value.gaps, analysis: value.analysis, terms: value.terms }
+          : { polished: value.polished, tip: value.tip, gaps: value.gaps, analysis: value.analysis, terms: value.terms }
       stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
     } else {
       stdout.write(`${value.polished}\n`)

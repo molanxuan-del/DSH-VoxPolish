@@ -13,6 +13,9 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { parseAnswer } from '../lib/index.js'
 
@@ -106,4 +109,133 @@ test('the teaching content never leaks into polished', () => {
   assert.equal(result.polished, '把函数改成异步')
   assert.equal(result.polished.includes('你真正想要的是'), false)
   assert.equal(result.polished.includes('async'), false)
+})
+
+/* ------------------------------- terms 三段式：解析器不动，拆分只在客户端 (c10) */
+
+test('a three-part ｜ term survives the strict parser untouched', () => {
+  const entry = 'FLIP 动画｜列表重排、筛选时元素平滑移动不闪烁｜iOS 主屏图标重排的顺滑感'
+  const result = parseAnswer(
+    `{"polished":"把界面做顺","tip":"","gaps":[],"analysis":"你真正想要的是动起来更顺的界面。","terms":["${entry}"]}`,
+  )
+  // The parser deliberately does NOT split: the wire format stays an array of
+  // plain strings, and splitting happens in the client renderer.
+  assert.deepEqual(result.terms, [entry])
+  assert.equal(result.terms[0].split('｜').length, 3)
+  assert.equal(result.analysis, '你真正想要的是动起来更顺的界面。')
+})
+
+test('three-part terms are filtered and capped exactly like any other entry', () => {
+  const good = '虚拟列表｜几千条数据滚动也不掉帧｜苹果相册无限滚动的流畅度'
+  const mixed = parseAnswer(`{"polished":"P","terms":["${good}","","   ",null,7,{"a":1}]}`)
+  assert.deepEqual(mixed.terms, [good])
+
+  const many = parseAnswer(
+    `{"polished":"P","terms":${JSON.stringify(Array.from({ length: 8 }, (_, i) => `T${i}｜效果${i}｜类似${i}`))}}`,
+  )
+  assert.equal(many.terms.length, 6, 'the prompt cap of 6 is still enforced')
+  assert.ok(many.terms.every((entry) => entry.split('｜').length === 3))
+})
+
+test('salvage keeps a three-part term when an unrelated value carries a stray quote', () => {
+  const raw =
+    '{"polished":"把「main」改成 async","tip":"这里 "引号" 是识别噪音","gaps":[],"analysis":"你真正想要的是让界面更顺。","terms":["FLIP 动画｜平滑移动不闪烁｜iOS 主屏的顺滑感"]}'
+  const result = parseAnswer(raw)
+  assert.equal(result.terms.length, 1)
+  assert.equal(result.terms[0].split('｜').length, 3)
+  assert.equal(result.polished.includes('FLIP'), false)
+})
+
+/* --------------------------- 客户端三段切分（源码级：lib/client.js 无法被 import） */
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const CLIENT_SOURCE = readFileSync(path.join(here, '..', 'lib', 'client.js'), 'utf8')
+
+/**
+ * Extract one function's source by brace balancing — the same technique
+ * test/client-contract.test.mjs uses, because the browser half has no export.
+ * @param {string} name - function name.
+ * @returns {string} the function source.
+ */
+function functionSource(name) {
+  const start = CLIENT_SOURCE.indexOf(`function ${name}(`)
+  assert.notEqual(start, -1, `lib/client.js must define function ${name}()`)
+  let depth = 0
+  for (let i = CLIENT_SOURCE.indexOf('{', start); i < CLIENT_SOURCE.length; i += 1) {
+    if (CLIENT_SOURCE[i] === '{') depth += 1
+    else if (CLIENT_SOURCE[i] === '}') {
+      depth -= 1
+      if (depth === 0) return CLIENT_SOURCE.slice(start, i + 1)
+    }
+  }
+  throw new Error(`unbalanced braces while reading function ${name}()`)
+}
+
+const client = new Function(
+  `${['stripTermLabel', 'splitTerm', 'termItems'].map(functionSource).join('\n')}\nreturn { splitTerm, termItems }`,
+)()
+
+test('the client splits a three-part ｜ entry into 名词 / 效果 / 类似', () => {
+  const parts = client.splitTerm('FLIP 动画｜效果：列表重排时元素平滑移动不闪烁｜类似：iOS 主屏图标重排的顺滑感')
+  assert.equal(parts.term, 'FLIP 动画')
+  // The label the model was asked to write is stripped: the renderer draws its own.
+  assert.equal(parts.effect, '列表重排时元素平滑移动不闪烁')
+  assert.equal(parts.similar, 'iOS 主屏图标重排的顺滑感')
+  assert.equal(parts.rest, '')
+})
+
+test('the client also cuts on a half-width | and keeps a stray extra separator', () => {
+  const halfWidth = client.splitTerm('虚拟列表|滚动不掉帧|苹果相册的流畅度')
+  assert.equal(halfWidth.term, '虚拟列表')
+  assert.equal(halfWidth.effect, '滚动不掉帧')
+  assert.equal(halfWidth.similar, '苹果相册的流畅度')
+
+  // More than three segments: still at most three lines, and no words are lost.
+  const extra = client.splitTerm('a|b|c|d')
+  assert.equal(extra.term, 'a')
+  assert.equal(extra.effect, 'b')
+  assert.equal(extra.similar, 'c｜d')
+})
+
+test('the client degrades instead of throwing: two segments, one segment, garbage', () => {
+  // Two: 名词 + 解释 — the older shape, still rendered.
+  const two = client.splitTerm('DSH｜运行插件的宿主')
+  assert.equal(two.term, 'DSH')
+  assert.equal(two.rest, '运行插件的宿主')
+  assert.equal(two.effect, '')
+  assert.equal(two.similar, '')
+
+  // One: shown whole, and the panel never guesses which half is the term.
+  const one = client.splitTerm('RR 位姿与路网')
+  assert.equal(one.term, '')
+  assert.equal(one.rest, 'RR 位姿与路网')
+  assert.equal(one.effect, '')
+  assert.equal(one.similar, '')
+
+  // Nothing usable — empty, blank, missing separator inside an empty middle.
+  for (const value of ['', '   ', null, undefined, '｜', '甲｜｜乙']) {
+    const parts = client.splitTerm(value)
+    assert.equal(typeof parts.term, 'string')
+    assert.equal(typeof parts.rest, 'string')
+    assert.equal(typeof parts.effect, 'string')
+    assert.equal(typeof parts.similar, 'string')
+  }
+  assert.equal(client.splitTerm('甲｜｜乙').term, '甲')
+  assert.equal(client.splitTerm('甲｜｜乙').effect, '')
+  assert.equal(client.splitTerm('甲｜｜乙').similar, '乙')
+})
+
+test('the client drops blank and non-string term entries before rendering', () => {
+  const good = 'FLIP 动画｜效果：平滑移动不闪烁｜类似：iOS 主屏的顺滑感'
+  const rows = client.termItems([good, '', '   ', null, 7, undefined, { a: 1 }, '只有一句'])
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].term, 'FLIP 动画')
+  assert.equal(rows[0].similar, 'iOS 主屏的顺滑感')
+  assert.deepEqual(rows[1], { key: 7, term: '', effect: '', similar: '', rest: '只有一句' })
+  // Original index survives as the render key, so a dropped entry cannot re-key one.
+  assert.deepEqual(rows.map((row) => row.key), [0, 7])
+
+  assert.deepEqual(client.termItems('不是一个数组'), [])
+  assert.deepEqual(client.termItems(undefined), [])
+  assert.equal(client.termItems(['   ', '']).length, 0)
 })

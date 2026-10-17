@@ -247,6 +247,142 @@ test('revealing the panel prefers the official host and names its kind', () => {
   assert.match(open, /revealFailed = true/)
 })
 
+/* --------------------------- 🔎 需求分析块：三段式、只读、无交互 (c10) */
+
+/**
+ * Load client helpers out of the bundle and return them as real callables.
+ * @param {string[]} names - function names to lift.
+ * @returns {object} the functions, keyed by name.
+ */
+function loadClientFunctions(names) {
+  const source = names.map(functionSource).join('\n')
+  return new Function(`${source}\nreturn { ${names.join(', ')} }`)()
+}
+
+const clientHelpers = loadClientFunctions(['stripTermLabel', 'splitTerm', 'termItems'])
+
+const ANALYSIS_START = '// ---- 🔎 需求分析'
+const ANALYSIS_END = 'state.tip.length > 0 || state.gaps.length > 0'
+const analysisAt = SOURCE.indexOf(ANALYSIS_START)
+assert.notEqual(analysisAt, -1, 'lib/client.js must keep the 需求分析 block marker')
+const analysisEndAt = SOURCE.indexOf(ANALYSIS_END, analysisAt)
+assert.notEqual(analysisEndAt, -1, 'the tips block must still follow the 需求分析 block')
+/** The block as one expression — the same slice the scratch render probe uses. */
+const ANALYSIS_BLOCK = SOURCE.slice(analysisAt, analysisEndAt).replace(/,\s*$/, '')
+
+/**
+ * Render the teaching block with a stub `h` that records shape, not strings, so
+ * a wrong child order or a missing line fails here instead of in the browser.
+ * @param {{ analysis?: string, terms?: unknown[], open?: boolean }} [state]
+ * @returns {object|null} the rendered tree (null when nothing is renderable).
+ */
+function renderTeachingBlock({ analysis = '', terms = [], open = true } = {}) {
+  let seq = 0
+  const h = (type, props, ...children) => ({
+    key: (seq += 1),
+    type,
+    props: props ?? null,
+    children: children.filter((child) => child !== null && child !== undefined && child !== false),
+  })
+  const render = new Function('h', 'analysisOpen', 'setAnalysisOpen', 'termRows', 'state', `return (${ANALYSIS_BLOCK})`)
+  return render(h, open, () => {}, clientHelpers.termItems(terms), { analysis, terms })
+}
+
+/** Every element type in a rendered tree. */
+function elementTypes(node, found = []) {
+  if (node === null || typeof node !== 'object') return found
+  found.push(typeof node.type === 'string' ? node.type : String(node.type?.name ?? node.type))
+  for (const child of node.children ?? []) {
+    if (Array.isArray(child)) child.forEach((entry) => elementTypes(entry, found))
+    else elementTypes(child, found)
+  }
+  return found
+}
+
+/**
+ * First node carrying a className. Positional indexing is fragile here: a stub
+ * `h` drops `null` children, so the body has one child or two depending on
+ * whether `analysis` was empty.
+ * @param {object|null} node - rendered tree.
+ * @param {string} className - the class to look for.
+ * @returns {object|null} the node, or null.
+ */
+function findClass(node, className) {
+  if (node === null || typeof node !== 'object') return null
+  if (node.props?.className === className) return node
+  for (const child of node.children ?? []) {
+    const found = Array.isArray(child)
+      ? child.map((entry) => findClass(entry, className)).find(Boolean)
+      : findClass(child, className)
+    if (found) return found
+  }
+  return null
+}
+
+test('a three-part term renders as three lines: 名词, then 效果 and 类似 as blocks', () => {
+  const tree = renderTeachingBlock({
+    analysis: '你真正想要的是动起来更顺的界面。',
+    terms: ['FLIP 动画｜效果：列表重排时元素平滑移动不闪烁｜类似：iOS 主屏图标重排的顺滑感'],
+  })
+  const row = tree.children[1].children[1].children[0][0]
+  // Three sibling nodes: the emphasised term, then two block-level lines. The
+  // CSS below is what turns those two divs into separate lines.
+  assert.deepEqual(row.children.map((child) => child.type), ['b', 'div', 'div'])
+  assert.equal(row.children[0].children[0], 'FLIP 动画')
+  assert.equal(row.children[1].props.className, 'dvp-term-effect')
+  assert.equal(row.children[1].children[1], '列表重排时元素平滑移动不闪烁')
+  assert.equal(row.children[2].props.className, 'dvp-term-similar')
+  assert.equal(row.children[2].children[1], 'iOS 主屏图标重排的顺滑感')
+  assert.match(SOURCE, /\.dvp-term-effect \{ display: block/)
+  assert.match(SOURCE, /\.dvp-term-similar \{\s*display: block/)
+})
+
+test('one- and two-segment terms still render, blanks are dropped, nothing is blank', () => {
+  const two = renderTeachingBlock({ terms: ['DSH｜运行插件的宿主'] })
+  const twoRow = findClass(two, 'dvp-terms').children[0][0]
+  assert.deepEqual(twoRow.children.map((child) => child.type), ['b', 'span'])
+  assert.equal(twoRow.children[0].children[0], 'DSH')
+  assert.equal(twoRow.children[1].children[0], '运行插件的宿主')
+
+  // A single-segment entry is shown whole: the panel never guesses at a term.
+  const one = renderTeachingBlock({ terms: ['RR 位姿与路网'] })
+  const oneRow = findClass(one, 'dvp-terms').children[0][0]
+  assert.deepEqual(oneRow.children.map((child) => child.type), ['span'])
+  assert.equal(oneRow.children[0].children[0], 'RR 位姿与路网')
+
+  // Blank / non-string entries never become an empty bullet, and the count in
+  // the header agrees with the rows actually drawn.
+  const filtered = renderTeachingBlock({ terms: ['', '   ', null, 7, '只有一句'] })
+  const rows = findClass(filtered, 'dvp-terms').children[0]
+  assert.equal(rows.length, 1)
+  assert.equal(findClass(filtered, 'dvp-block-title').children[0], '🔎 需求分析 · 1 条名词')
+
+  // Both fields empty: the whole block is not rendered at all.
+  assert.equal(renderTeachingBlock({}), null)
+  assert.equal(renderTeachingBlock({ terms: ['', null, 0] }), null)
+  assert.equal(findClass(renderTeachingBlock({ analysis: '只有分析' }), 'dvp-terms'), null)
+})
+
+test('the teaching block renders no control of any kind, collapsed or open', () => {
+  const types = elementTypes(
+    renderTeachingBlock({
+      analysis: '你真正想要的是动起来更顺的界面。',
+      terms: ['FLIP 动画｜效果：平滑移动不闪烁｜类似：iOS 主屏的顺滑感', '只有一句'],
+    }),
+  )
+  for (const forbidden of ['button', 'input', 'select', 'textarea']) {
+    assert.equal(types.includes(forbidden), false, `the teaching block must not contain a <${forbidden}>`)
+  }
+  assert.ok(types.includes('ul') && types.includes('li'))
+  // Collapsed: the header (a plain div) is the only child left.
+  const collapsed = renderTeachingBlock({ analysis: '有内容', terms: ['A｜效果：甲｜类似：乙'], open: false })
+  assert.equal(collapsed.children.length, 1)
+  assert.equal(collapsed.children[0].type, 'div')
+  assert.equal(collapsed.children[0].children[0].children[0], '▸')
+})
+
+
+
 /* ------------------------------------------------------- the discovery entry */
 
 test('the guide entry that makes the panel discoverable is an array entry', () => {
