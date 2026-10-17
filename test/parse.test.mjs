@@ -63,3 +63,47 @@ test('tolerates an empty reply', () => {
   assert.equal(result.polished, '')
   assert.deepEqual(result.gaps, [])
 })
+
+/* ------------------------------------------------ 需求分析 / 领域名词 (c9) */
+
+test('carries the teaching fields through a well-formed reply', () => {
+  const result = parseAnswer(
+    '{"polished":"整理后的内容","tip":"建议","gaps":["甲"],"analysis":"你真正想要的是把面板更新一下。","terms":["DSH —— DeepSeek Harness，运行插件的宿主；在你的需求里负责承载面板"]}',
+  )
+  assert.equal(result.polished, '整理后的内容')
+  assert.equal(result.analysis, '你真正想要的是把面板更新一下。')
+  assert.deepEqual(result.terms, ['DSH —— DeepSeek Harness，运行插件的宿主；在你的需求里负责承载面板'])
+})
+
+test('missing teaching fields degrade to an empty string and an empty array', () => {
+  const result = parseAnswer('{"polished":"只有旧字段","tip":"","gaps":[]}')
+  assert.equal(result.analysis, '')
+  assert.deepEqual(result.terms, [])
+})
+
+test('ill-typed or dirty terms never throw and never reach the user raw', () => {
+  const notArray = parseAnswer('{"polished":"P","analysis":7,"terms":{"a":1}}')
+  assert.equal(notArray.analysis, '')
+  assert.deepEqual(notArray.terms, [])
+
+  const mixed = parseAnswer('{"polished":"P","terms":["A —— 甲","","   ",null,"B —— 乙"]}')
+  assert.deepEqual(mixed.terms, ['A —— 甲', 'B —— 乙'])
+})
+
+test('salvage still recovers terms when a value keeps an unescaped ASCII quote', () => {
+  const raw =
+    '{"polished":"把「main」改成 async","tip":"这里 "引号" 是识别噪音","gaps":[],"analysis":"你真正想要的是重构 "入口" 函数。","terms":["async —— 异步；在你的需求里让函数不阻塞","RR —— 位姿；负责定位"]}'
+  const result = parseAnswer(raw)
+  assert.equal(result.terms.length, 2)
+  assert.ok(result.terms[1].startsWith('RR'))
+  assert.equal(result.polished.includes('"polished"'), false)
+})
+
+test('the teaching content never leaks into polished', () => {
+  const result = parseAnswer(
+    '{"polished":"把函数改成异步","tip":"","gaps":[],"analysis":"你真正想要的是异步化","terms":["async —— 异步；负责不阻塞"]}',
+  )
+  assert.equal(result.polished, '把函数改成异步')
+  assert.equal(result.polished.includes('你真正想要的是'), false)
+  assert.equal(result.polished.includes('async'), false)
+})

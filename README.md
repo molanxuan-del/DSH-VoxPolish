@@ -93,6 +93,8 @@ dsh plugin --profile web add link:<绝对路径>
 - **原话 / 整理后 双通道**：原话先到（可立刻发），整理在后台跑，互不阻塞。
 - **六档整理方式**：轻度 / **中度（默认）** / 深度 / 更简洁 / 更正式 / 更结构化，面板上随时切。
 - **表达教练**：一行「表达建议」指出这次最该改的点 + 最多 3 条建议补充的缺失信息。
+- **🔎 需求分析 + 领域名词**：把模糊口述归纳成「你真正想要的是……」，并列出这次需求相关的
+  专业名词（术语 + 大白话解释）。**只读**内容，帮你下一次说得更准——不进发送的文本。
 - **📚 词表纠错**：一行一词登记专有名词/英文词，整理时自动把识别错误纠正为正确写法；
   「原话」仍保留识别原样作对照。本机持久化，下一轮立即生效。
 - **⚙ 模型选择**：面板里枚举 DSH 已配置的全部模型，任选一个来整理并持久保存。
@@ -226,9 +228,10 @@ dsh-voice-polish/
   要多膨胀三分之一。
 - **实时声波**：同一路 source 接 `AnalyserNode`，每帧 RMS 写进 56 格环形缓冲，`canvas`
   按帧绘制；**刻意不经过 React state**，否则 60fps 会把整个面板每帧重渲染一次。
-- **模型输出容错**：整理结果要求是 `{"polished","tip","gaps"}` 的 JSON，但模型偶尔会在字符串值里
+- **模型输出容错**：整理结果要求是 `{"polished","tip","gaps","analysis","terms"}` 的 JSON，但模型偶尔会在字符串值里
   留下**未转义的英文双引号**让 JSON 非法。`parseAnswer` 因此是两级的：先严格 `JSON.parse`，
   失败则按键边界切片救回（`salvageAnswer`）——**绝不把原始 JSON 倒给用户**。
+  `analysis` / `terms` 缺失或类型不对时降级为 `''` / `[]`，绝不因此让整次解析失败。
 - **`sessionId` 必须透传**：只有在请求带 `sessionId` 时，部分路由才会注入所需的会话路由头。
 
 ---
@@ -248,7 +251,7 @@ dsh-voice-polish/
 
 ```bash
 node --check lib/client.js                                  # 语法
-node --test test/parse.test.mjs test/service.test.mjs       # 解析器 + 服务（52 例）
+node --test test/parse.test.mjs test/service.test.mjs       # 解析器 + 服务（67 例）
 node --test test/client-contract.test.mjs                   # 客户端契约（18 例）
 node service/cli.js --selftest                              # 离线自检（28 项）
 npm test                                                    # 上面三项的集合
@@ -265,6 +268,8 @@ npm test                                                    # 上面三项的集
 - [x] **v1.0.0** 插件本体：原话/整理后双通道、词表纠错、模型选择、表达教练、实时声波
 - [x] **官方右侧栏适配**：迁移到 `sidebarRightTabs`，`dsh-better-sidebar` 降为可选回退
 - [x] **独立服务（VoxPolish Service）**：CLI + HTTP API，`--selftest` 全绿
+- [x] **需求分析 + 领域名词**：面板里只读的「🔎 需求分析」块——归纳真实意图 + 科普相关术语，
+  让用户自己重新说一遍，形成「说 → 学 → 再说准」的闭环（发送内容不受影响，仍是原话／整理后）
 - [x] **一行安装**：`dsh plugin --profile web add github:molanxuan-del/DSH-VoxPolish`（无需 npm）
 - [ ] 语音识别可插拔：**本地离线**（sherpa-onnx + SenseVoice，免费、不出本机）与**用户自带 API**
 - [ ] 提交到社区插件市场

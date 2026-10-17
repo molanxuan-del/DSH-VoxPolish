@@ -165,7 +165,16 @@ test('vocabPromptBlock adds the block only for a non-empty list', () => {
 
 test('parseAnswer takes the strict path for well-formed JSON', () => {
   const strict = parseAnswer('{"polished":"整理后的内容","tip":"建议","gaps":["甲","乙"]}')
-  assert.deepEqual(strict, { polished: '整理后的内容', tip: '建议', gaps: ['甲', '乙'] })
+  // The whole object shape is pinned on purpose: the two teaching fields
+  // (analysis / terms) are part of the contract now, and a reply that omits
+  // them must degrade to '' / [] rather than being absent or undefined.
+  assert.deepEqual(strict, {
+    polished: '整理后的内容',
+    tip: '建议',
+    gaps: ['甲', '乙'],
+    analysis: '',
+    terms: [],
+  })
 
   // The tip itself contains an embedded `,"gaps"` marker. A strict parse keeps
   // it whole; the salvage fallback would truncate it to 先说". If this ever
@@ -203,7 +212,54 @@ test('parseAnswer turns plain prose into the polished text', () => {
 
 test('parseAnswer tolerates an empty reply', () => {
   const result = parseAnswer('')
-  assert.deepEqual(result, { polished: '', tip: '', gaps: [] })
+  assert.deepEqual(result, { polished: '', tip: '', gaps: [], analysis: '', terms: [] })
+})
+
+test('parseAnswer carries the teaching fields through the strict path', () => {
+  const raw =
+    '{"polished":"整理后的内容","tip":"建议","gaps":["甲"],"analysis":"你真正想要的是把配置改成异步加载。","terms":["RR —— 位姿与路网；在你的需求里负责定位"]}'
+  const result = parseAnswer(raw)
+  assert.equal(result.analysis, '你真正想要的是把配置改成异步加载。')
+  assert.deepEqual(result.terms, ['RR —— 位姿与路网；在你的需求里负责定位'])
+  // Read-only feedback: none of it may be merged into what the user sends.
+  assert.equal(result.polished.includes('你真正想要的是'), false)
+  assert.equal(result.polished.includes('位姿'), false)
+})
+
+test('parseAnswer degrades missing or ill-typed teaching fields to an empty string and array', () => {
+  const missing = parseAnswer('{"polished":"P","tip":"","gaps":[]}')
+  assert.equal(missing.analysis, '')
+  assert.deepEqual(missing.terms, [])
+
+  const mistyped = parseAnswer('{"polished":"P","analysis":42,"terms":"不是数组"}')
+  assert.equal(mistyped.analysis, '')
+  assert.deepEqual(mistyped.terms, [])
+
+  const objectTerms = parseAnswer('{"polished":"P","terms":{"a":1}}')
+  assert.deepEqual(objectTerms.terms, [])
+
+  const mixed = parseAnswer('{"polished":"P","analysis":"   ","terms":["A —— 甲","",null,7,"  ","B —— 乙"]}')
+  assert.equal(mixed.analysis, '')
+  assert.deepEqual(mixed.terms, ['A —— 甲', 'B —— 乙'])
+})
+
+test('parseAnswer salvages the teaching fields when a value keeps an unescaped quote', () => {
+  const raw =
+    '{"polished":"把「main」改成 async","tip":"注意 "引号" 是识别噪音","gaps":[],"analysis":"你真正想要的是重构 "入口" 函数。","terms":["async —— 异步；在你的需求里让函数不阻塞"]}'
+  const result = parseAnswer(raw)
+  assert.ok(result.polished.startsWith('把「main」改成 async'))
+  assert.ok(result.analysis.includes('重构'))
+  assert.equal(result.terms.length, 1)
+  assert.ok(result.terms[0].startsWith('async'))
+  assert.equal(result.polished.includes('"polished"'), false)
+})
+
+test('parseAnswer keeps a term that itself carries an unescaped quote', () => {
+  const raw =
+    '{"polished":"P","tip":"t","gaps":[],"analysis":"你想说的是 "X"。","terms":["RR "位姿" —— 定位；在你的需求里负责定位"]}'
+  const result = parseAnswer(raw)
+  assert.equal(result.terms.length, 1)
+  assert.ok(result.terms[0].includes('位姿'))
 })
 
 /* -------------------------------------------- 3. message construction (B4) */
