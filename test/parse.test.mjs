@@ -18,6 +18,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parseAnswer } from '../lib/index.js'
+import { explainFailure } from '../lib/core.js'
 
 test('parses a well-formed reply', () => {
   const result = parseAnswer('{"polished":"整理后的内容","tip":"建议","gaps":["甲","乙"]}')
@@ -238,4 +239,35 @@ test('the client drops blank and non-string term entries before rendering', () =
   assert.deepEqual(client.termItems('不是一个数组'), [])
   assert.deepEqual(client.termItems(undefined), [])
   assert.equal(client.termItems(['   ', '']).length, 0)
+})
+
+test('explainFailure turns the window refusal into an actionable sentence', () => {
+  const raw =
+    'side request payload ~1667831 tokens reaches the effective context window 997600 ' +
+    '(model=deepseek-flash); NOT forwarded - side requests bypass compression by design (#388). ' +
+    "Shrink the conversation or raise the model's context window."
+  const friendly = explainFailure(raw)
+  // It must say the transcript is not the problem is the panel's job; here the
+  // contract is: explain the cause, name the concrete numbers, offer the ways out.
+  assert.match(friendly, /太长/)
+  assert.match(friendly, /1,667,831/)
+  assert.match(friendly, /997,600/)
+  assert.match(friendly, /新对话/)
+  assert.match(friendly, /压缩/)
+  // The panel appends this itself; duplicating it would read twice.
+  assert.doesNotMatch(friendly, /原话不受影响/)
+})
+
+test('explainFailure keeps the numbers out when the refusal omits them', () => {
+  const friendly = explainFailure('side request refused: NOT forwarded')
+  assert.match(friendly, /太长/)
+  assert.doesNotMatch(friendly, /\d{4,}/, 'no invented token counts')
+})
+
+test('explainFailure covers auth and timeout, and stays silent otherwise', () => {
+  assert.match(explainFailure('401 Unauthorized: invalid api key'), /鉴权/)
+  assert.match(explainFailure('request timed out after 120s'), /超时/)
+  // Unrecognised failures must keep their original wording, not be swallowed.
+  assert.equal(explainFailure('something nobody has seen before'), '')
+  assert.equal(explainFailure(undefined), '')
 })
